@@ -279,7 +279,7 @@ This is the trip of a lifetime, man. And I'm just getting started.
 
 ---
 
-**Repository:** https://github.com/CaptainPhantasy/mcp-pattern-crystallizer-v2
+**Repository:** https://github.com/CaptainPhantasy/FLOYD-MCP-TOOLS-v2
 
 **Documentation:** See `README.md` for technical details, but read this file for the spiritual journey.
 
