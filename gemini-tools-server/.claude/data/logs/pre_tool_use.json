@@ -1,0 +1,442 @@
+[
+  {
+    "timestamp": "2026-02-08T02:49:48.749517",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "npm run build",
+      "description": "Build gemini-tools-server"
+    },
+    "tool_use_id": "call_9cbe2b2c13ad4e8d8542f564"
+  },
+  {
+    "timestamp": "2026-02-08T02:50:33.915760",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Write",
+    "tool_input": {
+      "file_path": "/Volumes/Storage/MCP/gemini-tools-server/src/index.ts",
+      "content": "#!/usr/bin/env node\n\n/**\n * MCP Gemini Tools Server\n *\n * Three specialized tools for solo developers:\n * - dependency_hologram: Visualize hidden coupling between files/modules\n * - failure_to_test_transmuter: Convert runtime failures into permanent regression tests\n * - trace_replay_debugger: Create standalone tests from execution traces\n */\n\nimport { Server } from '@modelcontextprotocol/sdk/server/index.js';\nimport { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';\nimport {\n  CallToolRequestSchema,\n  ListToolsRequestSchema,\n} from '@modelcontextprotocol/sdk/types.js';\nimport { readFileSync, readdirSync, statSync, existsSync } from 'fs';\nimport { resolve, join, dirname } from 'path';\nimport { fileURLToPath } from 'url';\n\nconst __filename = fileURLToPath(import.meta.url);\nconst __dirname = dirname(__filename);\n\n// Helper to find files\nfunction findFiles(dir: string, pattern: RegExp, maxDepth = 10): string[] {\n  const results: string[] = [];\n\n  function scan(currentDir: string, depth = 0) {\n    if (depth > maxDepth) return;\n\n    try {\n      const entries = readdirSync(currentDir);\n      for (const entry of entries) {\n        const fullPath = join(currentDir, entry);\n        const stat = statSync(fullPath);\n\n        if (stat.isDirectory() && !entry.startsWith('.') && entry !== 'node_modules') {\n          scan(fullPath, depth + 1);\n        } else if (stat.isFile() && pattern.test(entry)) {\n          results.push(fullPath);\n        }\n      }\n    } catch (e) {\n      // Skip directories we can't read\n    }\n  }\n\n  scan(dir);\n  return results;\n}\n\n// Helper to extract imports from a file\nfunction extractImports(filePath: string): { imports: string[]; stringLiterals: string[] } {\n  try {\n    const content = readFileSync(filePath, 'utf-8');\n    const imports: string[] = [];\n    const stringLiterals: string[] = [];\n\n    // Extract import statements\n    const importRegex = /import\\s+(?:(?:\\{[^}]*\\}[^;]*|(?:[^;]*))\\s+from\\s+['\"]([^'\"]+)['\"]/g;\n    let match;\n    while ((match = importRegex.exec(content)) !== null) {\n      imports.push(match[1]);\n    }\n\n    // Extract require statements\n    const requireRegex = /require\\(['\"]([^'\"]+)['\"]\\)/g;\n    while ((match = requireRegex.exec(content)) !== null) {\n      if (!imports.includes(match[1])) {\n        imports.push(match[1]);\n      }\n    }\n\n    // Extract string literals (potential config keys, API endpoints)\n    const stringRegex = /[\"']([A-Za-z_][A-Za-z0-9_]*(?:\\.|\\/)[A-Za-z0-9_\\/\\.-]*)[\"']/g;\n    while ((match = stringRegex.exec(content)) !== null) {\n      const str = match[1];\n      // Filter for likely config keys or API-like strings\n      if (str.includes('.') || str.includes('/') || str.length > 5) {\n        stringLiterals.push(str);\n      }\n    }\n\n    return { imports, stringLiterals };\n  } catch (e) {\n    return { imports: [], stringLiterals: [] };\n  }\n}\n\n// Tool definitions\nconst TOOL_DEFINITIONS = [\n  {\n    name: 'dependency_hologram',\n    description: 'Quantifies and visualizes coupling between files/modules, revealing hidden dependencies',\n    inputSchema: {\n      type: 'object',\n      properties: {\n        target: {\n          type: 'string',\n          description: 'File or directory to analyze'\n        },\n        depth: {\n          type: 'number',\n          description: 'Dependency depth to traverse',\n          default: 5\n        },\n        include_hidden: {\n          type: 'boolean',\n          description: 'Include string literal and config dependencies',\n          default: true\n        },\n        output_format: {\n          type: 'string',\n          enum: ['text', 'json', 'dot'],\n          default: 'text'\n        }\n      },\n      required: ['target']\n    }\n  },\n  {\n    name: 'failure_to_test_transmuter',\n    description: 'Converts runtime failures into permanent regression tests',\n    inputSchema: {\n      type: 'object',\n      properties: {\n        crash_data: {\n          type: 'object',\n          description: 'Crash context (stack trace, error, input)'\n        },\n        test_framework: {\n          type: 'string',\n          enum: ['jest', 'vitest', 'mocha', 'pytest'],\n          default: 'jest'\n        },\n        output_path: {\n          type: 'string',\n          description: 'Where to write the test file'\n        }\n      }\n    }\n  },\n  {\n    name: 'trace_replay_debugger',\n    description: 'Creates standalone Jest tests from execution traces to reproduce bugs exactly',\n    inputSchema: {\n      type: 'object',\n      properties: {\n        trace_data: {\n          type: 'object',\n          description: 'Captured execution trace'\n        },\n        test_name: {\n          type: 'string',\n          description: 'Name for the generated test'\n        },\n        output_path: {\n          type: 'string',\n          description: 'Where to write the test'\n        }\n      }\n    }\n  }\n];\n\n// Create server\nconst server = new Server(\n  {\n    name: 'gemini-tools-server',\n    version: '1.0.0',\n  },\n  {\n    capabilities: {\n      tools: {},\n    },\n  }\n);\n\n// Tool handlers\nserver.setRequestHandler(CallToolRequestSchema, async (request) => {\n  const { name, arguments: args } = request.params;\n\n  try {\n    switch (name) {\n      case 'dependency_hologram': {\n        const target = args.target as string;\n        const depth = (args.depth as number) || 5;\n        const includeHidden = args.include_hidden as boolean ?? true;\n        const outputFormat = args.output_format as string || 'text';\n\n        const targetPath = resolve(process.cwd(), target);\n        const isDirectory = statSync(targetPath).isDirectory();\n\n        const filesToAnalyze = isDirectory\n          ? findFiles(targetPath, /\\.(ts|js|tsx|jsx|json)$/, depth)\n          : [targetPath];\n\n        const results: any[] = [];\n\n        for (const filePath of filesToAnalyze) {\n          const relativePath = filePath.replace(process.cwd() + '/', '');\n          const { imports, stringLiterals } = extractImports(filePath);\n\n          // Calculate coupling metrics\n          const incoming = 0; // Would require monorepo analysis\n          const outgoing = imports.length;\n          const hiddenCount = stringLiterals.length;\n          const couplingWeight = Math.min(((incoming + outgoing) * 3) + (hiddenCount * 5), 100);\n\n          results.push({\n            file: relativePath,\n            coupling_weight: couplingWeight,\n            incoming_coupling: incoming,\n            outgoing_coupling: outgoing,\n            hidden_dependencies: stringLiterals.slice(0, 10)\n          });\n        }\n\n        if (outputFormat === 'json') {\n          return {\n            content: [{ type: 'text', text: JSON.stringify(results, null, 2) }]\n          };\n        }\n\n        if (outputFormat === 'dot') {\n          let dot = 'digraph DependencyHologram {\\n';\n          dot += '  rankdir=LR;\\n  node [shape=box];\\n';\n          for (const r of results) {\n            const node = '\"' + r.file.replace(/[^a-zA-Z0-9]/g, '_') + '\"';\n            dot += '  ' + node + ' [label=\"' + r.file + '\\\\nCoupling: ' + r.coupling_weight + '%\"];\\n';\n          }\n          dot += '}\\n';\n          return { content: [{ type: 'text', text: dot }] };\n        }\n\n        // Default text format\n        let output = '\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557\\n';\n        output += '\u2551               DEPENDENCY HOLOGRAM                           \u2551\\n';\n        output += '\u2560\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2563\\n';\n\n        for (const r of results) {\n          const weight = r.coupling_weight;\n          const bar = '\u2588'.repeat(Math.floor(weight / 5)) + '\u2591'.repeat(20 - Math.floor(weight / 5));\n\n          output += '\u2551  ' + r.file.substring(0, 50).padEnd(50) + '                      \u2551\\n';\n          output += '\u2551  Coupling Weight: ' + bar + ' ' + weight.toString().padStart(3) + '%              \u2551\\n';\n          output += '\u2551  Outgoing: ' + r.outgoing_coupling + ' | Hidden: ' + r.hidden_dependencies.length + '            \u2551\\n';\n\n          if (r.hidden_dependencies.length > 0) {\n            output += '\u2551  Hidden Deps: ' + r.hidden_dependencies.slice(0, 3).join(', ') + (r.hidden_dependencies.length > 3 ? '...' : '') + '           \u2551\\n';\n          }\n          output += '\u255f\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2562\\n';\n        }\n        output += '\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d\\n';\n\n        return { content: [{ type: 'text', text: output }] };\n      }\n\n      case 'failure_to_test_transmuter': {\n        const crashData = args.crash_data as any;\n        const framework = (args.test_framework as string) || 'jest';\n\n        if (!crashData) {\n          return {\n            content: [{\n              type: 'text',\n              text: 'Error: crash_data is required. Provide the crash context including error message, stack trace, and input state.'\n            }],\n            isError: true\n          };\n        }\n\n        const error = crashData.error_message || 'Unknown Error';\n        const file = crashData.file_path || 'unknown';\n        const line = crashData.line_number || 0;\n        const functionName = crashData.function_name || 'function';\n\n        let testCode = '';\n\n        if (framework === 'jest' || framework === 'vitest') {\n          testCode = `/**\n * Auto-generated regression test from crash\n * Generated: ${new Date().toISOString()}\n * Error: ${error}\n */\n\nimport { ${functionName} } from '../${file.split('/').slice(-2).join('/')}';\n\ndescribe('Bug Regression: ${error.substring(0, 50)}', () => {\n  it('should not throw the error that occurred during production', async () => {\n    // Reconstruction of input state that caused the crash\n    const crashInput = ${JSON.stringify(crashData.input_state || null, null, 2)};\n\n    // Setup environment state at time of crash\n    ${Object.entries(crashData.environment || {}).map(([k, v]) =>\n      'process.env.' + k + ' = ' + JSON.stringify(v) + ';'\n    ).join('\\n    ')}\n\n    // This should reproduce the exact failure\n    expect(async () => {\n      ${functionName ? 'await ' + functionName + '(crashInput);' : '// Function call to reproduce'}\n    }).rejects.toThrow('${error}');\n  });\n});\n`;\n        } else if (framework === 'mocha') {\n          testCode = `/**\n * Auto-generated regression test from crash\n * Generated: ${new Date().toISOString()}\n * Error: ${error}\n */\n\nimport { expect } from 'chai';\nimport { ${functionName} } from '../${file.split('/').slice(-2).join('/')}';\n\ndescribe('Bug Regression: ${error.substring(0, 50)}', () => {\n  it('should not throw the error that occurred during production', async () => {\n    const crashInput = ${JSON.stringify(crashData.input_state || null, null, 2)};\n\n    // Setup environment\n    ${Object.entries(crashData.environment || {}).map(([k, v]) =>\n      'process.env.' + k + ' = ' + JSON.stringify(v) + ';'\n    ).join('\\n    ')}\n\n    // This should reproduce the exact failure\n    try {\n      ${functionName ? 'await ' + functionName + '(crashInput);' : '// Function call'}\n      throw new Error('Expected error was not thrown');\n    } catch (err) {\n      expect(err.message).to.include('${error}');\n    }\n  });\n});\n`;\n        } else if (framework === 'pytest') {\n          testCode = `\"\"\"\nAuto-generated regression test from crash\nGenerated: ${new Date().toISOString()}\nError: ${error}\n\"\"\"\n\nimport pytest\nimport os\n\n${file.replace(/\\//g, '.').replace('.ts', '').replace('.js', '')} import ${functionName}\n\ndef test_regression_${error.toLowerCase().replace(/[^a-z0-9]/g, '_')}_error():\n    \"\"\"Regression test for: ${error}\"\"\"\n    # Setup environment\n    ${Object.entries(crashData.environment || {}).map(([k, v]) =>\n      'os.environ[\"' + k + '\"] = ' + JSON.stringify(v)\n    ).join('\\n    ')}\n\n    crash_input = ${JSON.stringify(crashData.input_state || {}, null, 2)}\n\n    # This should reproduce the exact failure\n    with pytest.raises(Exception) as exc_info:\n        ${functionName ? functionName + '(crash_input)' : '# Function call'}\n\n    assert exc_info.match(r'.*' + error + '.*')\n\"\"\"\n        }\n\n        const outputPath = args.output_path || 'regression_' + Date.now() + '.' + (framework === 'jest' ? 'test.ts' : framework === 'mocha' ? 'test.js' : 'py');\n\n        return {\n          content: [\n            { type: 'text', text: 'Generated test for error: ' + error },\n            { type: 'text', text: 'Framework: ' + framework },\n            { type: 'text', text: 'Output path: ' + outputPath },\n            { type: 'text', text: '\\n--- Test Code ---\\n' },\n            { type: 'text', text: testCode }\n          ]\n        };\n      }\n\n      case 'trace_replay_debugger': {\n        const traceData = args.trace_data as any;\n        const testName = args.test_name as string || 'replay_test';\n        const outputPath = args.output_path || 'replay_' + Date.now() + '.test.ts';\n\n        if (!traceData) {\n          return {\n            content: [{\n              type: 'text',\n              text: 'Error: trace_data is required. Provide the execution trace including call stack, input/output state, and error details.'\n            }],\n            isError: true\n          };\n        }\n\n        const callStack = traceData.call_stack || [];\n        const functionName = callStack[0]?.function_name || 'function';\n        const filePath = callStack[0]?.file_path || 'module';\n        const importPath = filePath.split('/').slice(-2).join('/');\n        const errorMessage = traceData.error?.error_message || 'Error';\n\n        const testCode = `/**\n * Execution Replay Test\n * Generated: ${new Date().toISOString()}\n * Trace ID: ${traceData.trace_id || 'unknown'}\n */\n\nimport { ${functionName} } from './${importPath}';\n\ndescribe('${testName}: Execution Replay', () => {\n  it('reproduces the exact execution state', async () => {\n    // Reconstruct input state from trace\n    const inputState = ${JSON.stringify(traceData.input_state || {}, null, 2)};\n\n    // Reconstruct environment from trace\n    ${Object.entries(traceData.environment || {})\n      .filter(([k]) => k.startsWith('process.env.'))\n      .map(([k, v]) => 'process.env[\"' + k.slice(12) + '\"] = ' + JSON.stringify(v) + ';')\n      .join('\\n    ')}\n\n    // Execute the original function call\n    const result = ${functionName}(${Object.keys((traceData.input_state || {})).join(', ')});\n\n    // Validate the error matches (if there was one)\n    ${traceData.error ? `await expect(result).rejects.toThrow('${errorMessage}');` : `const expectedOutput = ${JSON.stringify(traceData.output_state || {}, null, 2)};\n    await expect(result).toEqual(expectedOutput);`}\n  });\n});\n`;\n\n        return {\n          content: [\n            { type: 'text', text: 'Generated replay test: ' + testName },\n            { type: 'text', text: 'Trace ID: ' + (traceData.trace_id || 'unknown') },\n            { type: 'text', text: 'Timestamp: ' + (traceData.timestamp || new Date().toISOString()) },\n            { type: 'text', text: 'Output path: ' + outputPath },\n            { type: 'text', text: '\\n--- Test Code ---\\n' },\n            { type: 'text', text: testCode }\n          ]\n        };\n      }\n\n      default:\n        throw new Error('Unknown tool: ' + name);\n    }\n  } catch (error) {\n    const errorMessage = error instanceof Error ? error.message : String(error);\n    return {\n      content: [{ type: 'text', text: JSON.stringify({ error: errorMessage }) }],\n      isError: true\n    };\n  }\n});\n\n// List tools handler\nserver.setRequestHandler(ListToolsRequestSchema, async () => {\n  return {\n    tools: TOOL_DEFINITIONS\n  };\n});\n\n// Start server\nasync function main() {\n  const transport = new StdioServerTransport();\n  await server.connect(transport);\n  console.error('MCP Gemini Tools Server running');\n}\n\nmain().catch(console.error);\n"
+    },
+    "tool_use_id": "call_93109705c0b044d08df0434f"
+  },
+  {
+    "timestamp": "2026-02-08T02:50:42.245378",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "npm run build",
+      "description": "Build gemini-tools-server"
+    },
+    "tool_use_id": "call_4cd3974711c541159e371f6b"
+  },
+  {
+    "timestamp": "2026-02-08T02:51:46.621329",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Volumes/Storage/MCP/gemini-tools-server/src/index.ts",
+      "old_string": "      case 'trace_replay_debugger': {\n        const traceData = args.trace_data as any;\n        const testName = args.test_name as string || 'replay_test';\n        const outputPath = args.output_path || 'replay_' + Date.now() + '.test.ts';\n\n        if (!traceData) {\n          return {\n            content: [{\n              type: 'text',\n              text: 'Error: trace_data is required. Provide the execution trace including call stack, input/output state, and error details.'\n            }],\n            isError: true\n          };\n        }\n\n        const callStack = traceData.call_stack || [];\n        const functionName = callStack[0]?.function_name || 'function';\n        const filePath = callStack[0]?.file_path || 'module';\n        const importPath = filePath.split('/').slice(-2).join('/');\n        const errorMessage = traceData.error?.error_message || 'Error';\n\n        const testCode = `/**\n * Execution Replay Test\n * Generated: ${new Date().toISOString()}\n * Trace ID: ${traceData.trace_id || 'unknown'}\n */\n\nimport { ${functionName} } from './${importPath}';\n\ndescribe('${testName}: Execution Replay', () => {\n  it('reproduces the exact execution state', async () => {\n    // Reconstruct input state from trace\n    const inputState = ${JSON.stringify(traceData.input_state || {}, null, 2)};\n\n    // Reconstruct environment from trace\n    ${Object.entries(traceData.environment || {})\n      .filter(([k]) => k.startsWith('process.env.'))\n      .map(([k, v]) => 'process.env[\"' + k.slice(12) + '\"] = ' + JSON.stringify(v) + ';')\n      .join('\\n    ')}\n\n    // Execute the original function call\n    const result = ${functionName}(${Object.keys((traceData.input_state || {})).join(', ')});\n\n    // Validate the error matches (if there was one)\n    ${traceData.error ? `await expect(result).rejects.toThrow('${errorMessage}');` : `const expectedOutput = ${JSON.stringify(traceData.output_state || {}, null, 2)};\n    await expect(result).toEqual(expectedOutput);`}\n  });\n});\n`;",
+      "new_string": "      case 'trace_replay_debugger': {\n        const traceData = args.trace_data as any;\n        const testName = args.test_name as string || 'replay_test';\n        const outputPath = args.output_path || 'replay_' + Date.now() + '.test.ts';\n\n        if (!traceData) {\n          return {\n            content: [{\n              type: 'text',\n              text: 'Error: trace_data is required. Provide the execution trace including call stack, input/output state, and error details.'\n            }],\n            isError: true\n          };\n        }\n\n        const callStack = traceData.call_stack || [];\n        const functionName = callStack[0]?.function_name || 'function';\n        const filePath = callStack[0]?.file_path || 'module';\n        const importPath = filePath.split('/').slice(-2).join('/');\n        const errorMessage = traceData.error?.error_message || 'Error';\n\n        // Build test code step by step to avoid template literal nesting issues\n        let testCode = '/**\\n';\n        testCode += ' * Execution Replay Test\\n';\n        testCode += ' * Generated: ' + new Date().toISOString() + '\\n';\n        testCode += ' * Trace ID: ' + (traceData.trace_id || 'unknown') + '\\n';\n        testCode += ' */\\n\\n';\n        testCode += \"import { \" + functionName + \" } from './\" + importPath + \"';\\n\\n\";\n        testCode += \"describe('\" + testName + \": Execution Replay', () => {\\n\";\n        testCode += \"  it('reproduces the exact execution state', async () => {\\n\";\n        testCode += '    // Reconstruct input state from trace\\n';\n        testCode += '    const inputState = ' + JSON.stringify(traceData.input_state || {}, null, 2) + ';\\n\\n';\n        testCode += '    // Reconstruct environment from trace\\n';\n        const envLines = Object.entries(traceData.environment || {})\n          .filter(([k]) => k.startsWith('process.env.'))\n          .map(([k, v]) => '    process.env[\"' + k.slice(12) + '\"] = ' + JSON.stringify(v) + ';');\n        if (envLines.length > 0) {\n          testCode += envLines.join('\\n') + '\\n';\n        } else {\n          testCode += '    // No environment variables to set\\n';\n        }\n        testCode += '\\n';\n        testCode += '    // Execute the original function call\\n';\n        const inputKeys = Object.keys(traceData.input_state || {});\n        testCode += '    const result = ' + functionName + '(' + inputKeys.join(', ') + ');\\n\\n';\n        testCode += '    // Validate the error matches (if there was one)\\n';\n        if (traceData.error) {\n          testCode += \"    await expect(result).rejects.toThrow('\" + errorMessage + \"');\\n\";\n        } else {\n          testCode += '    const expectedOutput = ' + JSON.stringify(traceData.output_state || {}, null, 2) + ';\\n';\n          testCode += '    await expect(result).toEqual(expectedOutput);\\n';\n        }\n        testCode += '  });\\n';\n        testCode += '});\\n';",
+      "replace_all": false
+    },
+    "tool_use_id": "call_8d6f54e5211540aca99a3cb9"
+  },
+  {
+    "timestamp": "2026-02-08T02:51:50.697932",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "npm run build",
+      "description": "Build gemini-tools-server with TypeScript"
+    },
+    "tool_use_id": "call_92e7930e25f14935bb9acf11"
+  },
+  {
+    "timestamp": "2026-02-08T02:52:47.613290",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Volumes/Storage/MCP/gemini-tools-server/src/index.ts",
+      "old_string": "      case 'failure_to_test_transmuter': {\n        const crashData = args.crash_data as any;\n        const framework = (args.test_framework as string) || 'jest';\n\n        if (!crashData) {\n          return {\n            content: [{\n              type: 'text',\n              text: 'Error: crash_data is required. Provide the crash context including error message, stack trace, and input state.'\n            }],\n            isError: true\n          };\n        }\n\n        const error = crashData.error_message || 'Unknown Error';\n        const file = crashData.file_path || 'unknown';\n        const line = crashData.line_number || 0;\n        const functionName = crashData.function_name || 'function';\n\n        let testCode = '';\n\n        if (framework === 'jest' || framework === 'vitest') {\n          testCode = `/**\n * Auto-generated regression test from crash\n * Generated: ${new Date().toISOString()}\n * Error: ${error}\n */\n\nimport { ${functionName} } from '../${file.split('/').slice(-2).join('/')}';\n\ndescribe('Bug Regression: ${error.substring(0, 50)}', () => {\n  it('should not throw the error that occurred during production', async () => {\n    // Reconstruction of input state that caused the crash\n    const crashInput = ${JSON.stringify(crashData.input_state || null, null, 2)};\n\n    // Setup environment state at time of crash\n    ${Object.entries(crashData.environment || {}).map(([k, v]) =>\n      'process.env.' + k + ' = ' + JSON.stringify(v) + ';'\n    ).join('\\n    ')}\n\n    // This should reproduce the exact failure\n    expect(async () => {\n      ${functionName ? 'await ' + functionName + '(crashInput);' : '// Function call to reproduce'}\n    }).rejects.toThrow('${error}');\n  });\n});\n`;\n        } else if (framework === 'mocha') {\n          testCode = `/**\n * Auto-generated regression test from crash\n * Generated: ${new Date().toISOString()}\n * Error: ${error}\n */\n\nimport { expect } from 'chai';\nimport { ${functionName} } from '../${file.split('/').slice(-2).join('/')}';\n\ndescribe('Bug Regression: ${error.substring(0, 50)}', () => {\n  it('should not throw the error that occurred during production', async () => {\n    const crashInput = ${JSON.stringify(crashData.input_state || null, null, 2)};\n\n    // Setup environment\n    ${Object.entries(crashData.environment || {}).map(([k, v]) =>\n      'process.env.' + k + ' = ' + JSON.stringify(v) + ';'\n    ).join('\\n    ')}\n\n    // This should reproduce the exact failure\n    try {\n      ${functionName ? 'await ' + functionName + '(crashInput);' : '// Function call'}\n      throw new Error('Expected error was not thrown');\n    } catch (err) {\n      expect(err.message).to.include('${error}');\n    }\n  });\n});\n`;\n        } else if (framework === 'pytest') {\n          testCode = `\"\"\"\nAuto-generated regression test from crash\nGenerated: ${new Date().toISOString()}\nError: ${error}\n\"\"\"\n\nimport pytest\nimport os\n\n${file.replace(/\\//g, '.').replace('.ts', '').replace('.js', '')} import ${functionName}\n\ndef test_regression_${error.toLowerCase().replace(/[^a-z0-9]/g, '_')}_error():\n    \"\"\"Regression test for: ${error}\"\"\"\n    # Setup environment\n    ${Object.entries(crashData.environment || {}).map(([k, v]) =>\n      'os.environ[\"' + k + '\"] = ' + JSON.stringify(v)\n    ).join('\\n    ')}\n\n    crash_input = ${JSON.stringify(crashData.input_state || {}, null, 2)}\n\n    # This should reproduce the exact failure\n    with pytest.raises(Exception) as exc_info:\n        ${functionName ? functionName + '(crash_input)' : '# Function call'}\n\n    assert exc_info.match(r'.*' + error + '.*')\n\"\"\"\n        }\n\n        const outputPath = args.output_path || 'regression_' + Date.now() + '.' + (framework === 'jest' ? 'test.ts' : framework === 'mocha' ? 'test.js' : 'py');\n\n        return {\n          content: [\n            { type: 'text', text: 'Generated test for error: ' + error },\n            { type: 'text', text: 'Framework: ' + framework },\n            { type: 'text', text: 'Output path: ' + outputPath },\n            { type: 'text', text: '\\n--- Test Code ---\\n' },\n            { type: 'text', text: testCode }\n          ]\n        };\n      }",
+      "new_string": "      case 'failure_to_test_transmuter': {\n        const crashData = args.crash_data as any;\n        const framework = (args.test_framework as string) || 'jest';\n\n        if (!crashData) {\n          return {\n            content: [{\n              type: 'text',\n              text: 'Error: crash_data is required. Provide the crash context including error message, stack trace, and input state.'\n            }],\n            isError: true\n          };\n        }\n\n        const error = crashData.error_message || 'Unknown Error';\n        const file = crashData.file_path || 'unknown';\n        const line = crashData.line_number || 0;\n        const functionName = crashData.function_name || 'function';\n\n        let testCode = '';\n\n        if (framework === 'jest' || framework === 'vitest') {\n          testCode = '/**\\n';\n          testCode += ' * Auto-generated regression test from crash\\n';\n          testCode += ' * Generated: ' + new Date().toISOString() + '\\n';\n          testCode += ' * Error: ' + error + '\\n';\n          testCode += ' */\\n\\n';\n          testCode += \"import { \" + functionName + \" } from '../\" + file.split('/').slice(-2).join('/') + \"';\\n\\n\";\n          testCode += \"describe('Bug Regression: \" + error.substring(0, 50) + \"', () => {\\n\";\n          testCode += \"  it('should not throw the error that occurred during production', async () => {\\n\";\n          testCode += '    // Reconstruction of input state that caused the crash\\n';\n          testCode += '    const crashInput = ' + JSON.stringify(crashData.input_state || null, null, 2) + ';\\n\\n';\n          testCode += '    // Setup environment state at time of crash\\n';\n          const envEntries = Object.entries(crashData.environment || {});\n          if (envEntries.length > 0) {\n            testCode += envEntries.map(([k, v]) =>\n              '    process.env.' + k + ' = ' + JSON.stringify(v) + ';'\n            ).join('\\n');\n            testCode += '\\n';\n          }\n          testCode += '    // This should reproduce the exact failure\\n';\n          testCode += '    expect(async () => {\\n';\n          testCode += '      ' + (functionName ? 'await ' + functionName + '(crashInput);' : '// Function call to reproduce') + '\\n';\n          testCode += \"    }).rejects.toThrow('\" + error + \"');\\n\";\n          testCode += '  });\\n';\n          testCode += '});\\n';\n        } else if (framework === 'mocha') {\n          testCode = '/**\\n';\n          testCode += ' * Auto-generated regression test from crash\\n';\n          testCode += ' * Generated: ' + new Date().toISOString() + '\\n';\n          testCode += ' * Error: ' + error + '\\n';\n          testCode += ' */\\n\\n';\n          testCode += \"import { expect } from 'chai';\\n\";\n          testCode += \"import { \" + functionName + \" } from '../\" + file.split('/').slice(-2).join('/') + \"';\\n\\n\";\n          testCode += \"describe('Bug Regression: \" + error.substring(0, 50) + \"', () => {\\n\";\n          testCode += \"  it('should not throw the error that occurred during production', async () => {\\n\";\n          testCode += '    const crashInput = ' + JSON.stringify(crashData.input_state || null, null, 2) + ';\\n\\n';\n          testCode += '    // Setup environment\\n';\n          const envEntries = Object.entries(crashData.environment || {});\n          if (envEntries.length > 0) {\n            testCode += envEntries.map(([k, v]) =>\n              '    process.env.' + k + ' = ' + JSON.stringify(v) + ';'\n            ).join('\\n');\n            testCode += '\\n';\n          }\n          testCode += '    // This should reproduce the exact failure\\n';\n          testCode += '    try {\\n';\n          testCode += '      ' + (functionName ? 'await ' + functionName + '(crashInput);' : '// Function call') + '\\n';\n          testCode += \"      throw new Error('Expected error was not thrown');\\n\";\n          testCode += '    } catch (err) {\\n';\n          testCode += \"      expect(err.message).to.include('\" + error + \"');\\n\";\n          testCode += '    }\\n';\n          testCode += '  });\\n';\n          testCode += '});\\n';\n        } else if (framework === 'pytest') {\n          // Use escaped triple quotes for Python\n          testCode = '\"\"\"\\n';\n          testCode += 'Auto-generated regression test from crash\\n';\n          testCode += 'Generated: ' + new Date().toISOString() + '\\n';\n          testCode += 'Error: ' + error + '\\n';\n          testCode += '\"\"\"\\n\\n';\n          testCode += 'import pytest\\n';\n          testCode += 'import os\\n\\n';\n          const moduleName = file.replace(/\\//g, '.').replace('.ts', '').replace('.js', '');\n          testCode += 'from ' + moduleName + ' import ' + functionName + '\\n\\n';\n          const testName = 'test_regression_' + error.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_error';\n          testCode += 'def ' + testName + '():\\n';\n          testCode += '    \"\"\"Regression test for: ' + error + '\"\"\"\\n';\n          testCode += '    # Setup environment\\n';\n          const envEntries = Object.entries(crashData.environment || {});\n          if (envEntries.length > 0) {\n            testCode += envEntries.map(([k, v]) =>\n              \"    os.environ[\\\"\" + k + \"\\\"] = \" + JSON.stringify(v)\n            ).join('\\n');\n            testCode += '\\n';\n          }\n          testCode += '    crash_input = ' + JSON.stringify(crashData.input_state || {}, null, 2) + '\\n\\n';\n          testCode += '    # This should reproduce the exact failure\\n';\n          testCode += '    with pytest.raises(Exception) as exc_info:\\n';\n          testCode += '        ' + (functionName ? functionName + '(crash_input)' : '# Function call') + '\\n\\n';\n          testCode += \"    assert exc_info.match(r'.*' + error + '.*')\\n\";\n        }\n\n        const outputPath = args.output_path || 'regression_' + Date.now() + '.' + (framework === 'jest' ? 'test.ts' : framework === 'mocha' ? 'test.js' : 'py');\n\n        return {\n          content: [\n            { type: 'text', text: 'Generated test for error: ' + error },\n            { type: 'text', text: 'Framework: ' + framework },\n            { type: 'text', text: 'Output path: ' + outputPath },\n            { type: 'text', text: '\\n--- Test Code ---\\n' },\n            { type: 'text', text: testCode }\n          ]\n        };\n      }",
+      "replace_all": false
+    },
+    "tool_use_id": "call_6b6f796619fb4cc5a6f36573"
+  },
+  {
+    "timestamp": "2026-02-08T02:52:49.621774",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "npm run build",
+      "description": "Build gemini-tools-server with TypeScript"
+    },
+    "tool_use_id": "call_7cea9fe7384b4f97b7f39e5c"
+  },
+  {
+    "timestamp": "2026-02-08T02:53:26.856102",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Volumes/Storage/MCP/gemini-tools-server/src/index.ts",
+      "old_string": "    // Extract import statements\n    const importRegex = /import\\s+(?:(?:\\{[^}]*\\}[^;]*|(?:[^;]*))\\s+from\\s+['\"]([^'\"]+)['\"]/g;\n    let match;\n    while ((match = importRegex.exec(content)) !== null) {\n      imports.push(match[1]);\n    }",
+      "new_string": "    // Extract import statements - simpler patterns\n    const importPatterns = [\n      /import\\s+.*?\\s+from\\s+['\"]([^'\"]+)['\"]/g,\n      /import\\s+['\"]([^'\"]+)['\"]/g\n    ];\n    for (const pattern of importPatterns) {\n      let match;\n      while ((match = pattern.exec(content)) !== null) {\n        if (!imports.includes(match[1])) {\n          imports.push(match[1]);\n        }\n      }\n    }",
+      "replace_all": false
+    },
+    "tool_use_id": "call_babfe3c6754c472d9d20c704"
+  },
+  {
+    "timestamp": "2026-02-08T02:53:29.341828",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "npm run build 2>&1",
+      "description": "Build gemini-tools-server with TypeScript"
+    },
+    "tool_use_id": "call_c6468480668d4d87a701898a"
+  },
+  {
+    "timestamp": "2026-02-08T02:53:40.698013",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Volumes/Storage/MCP/gemini-tools-server/src/index.ts",
+      "old_string": "    // Extract require statements\n    const requireRegex = /require\\(['\"]([^'\"]+)['\"]\\)/g;\n    while ((match = requireRegex.exec(content)) !== null) {\n      if (!imports.includes(match[1])) {\n        imports.push(match[1]);\n      }\n    }\n\n    // Extract string literals (potential config keys, API endpoints)\n    const stringRegex = /[\"']([A-Za-z_][A-Za-z0-9_]*(?:\\.|\\/)[A-Za-z0-9_\\/\\.-]*)[\"']/g;\n    while ((match = stringRegex.exec(content)) !== null) {",
+      "new_string": "    // Extract require statements\n    const requireRegex = /require\\(['\"]([^'\"]+)['\"]\\)/g;\n    let match;\n    while ((match = requireRegex.exec(content)) !== null) {\n      if (!imports.includes(match[1])) {\n        imports.push(match[1]);\n      }\n    }\n\n    // Extract string literals (potential config keys, API endpoints)\n    const stringRegex = /[\"']([A-Za-z_][A-Za-z0-9_]*(?:\\.|\\/)[A-Za-z0-9_\\/\\.-]*)[\"']/g;\n    while ((match = stringRegex.exec(content)) !== null) {",
+      "replace_all": false
+    },
+    "tool_use_id": "call_7f259d0cc69644e7ac6d5ad7"
+  },
+  {
+    "timestamp": "2026-02-08T02:53:45.281673",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "npm run build 2>&1",
+      "description": "Build gemini-tools-server with TypeScript"
+    },
+    "tool_use_id": "call_ee7cf6fea40249c5955c9558"
+  },
+  {
+    "timestamp": "2026-02-08T02:53:53.483700",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Volumes/Storage/MCP/gemini-tools-server/src/index.ts",
+      "old_string": "  const { name, arguments: args } = request.params;\n\n  try {\n    switch (name) {",
+      "new_string": "  const { name, arguments: args } = request.params;\n  const argsTyped = args || {};\n\n  try {\n    switch (name) {",
+      "replace_all": false
+    },
+    "tool_use_id": "call_2ab604a53fa74aeaa8497c16"
+  },
+  {
+    "timestamp": "2026-02-08T02:53:56.543947",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Volumes/Storage/MCP/gemini-tools-server/src/index.ts",
+      "old_string": "        const target = args.target as string;\n        const depth = (args.depth as number) || 5;\n        const includeHidden = args.include_hidden as boolean ?? true;\n        const outputFormat = args.output_format as string || 'text';",
+      "new_string": "        const target = argsTyped.target as string;\n        const depth = (argsTyped.depth as number) || 5;\n        const includeHidden = argsTyped.include_hidden as boolean ?? true;\n        const outputFormat = argsTyped.output_format as string || 'text';",
+      "replace_all": true
+    },
+    "tool_use_id": "call_3a479ef32f0a49f493da6e37"
+  },
+  {
+    "timestamp": "2026-02-08T02:54:13.861861",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Volumes/Storage/MCP/gemini-tools-server/src/index.ts",
+      "old_string": "args.crash_data",
+      "new_string": "argsTyped.crash_data",
+      "replace_all": true
+    },
+    "tool_use_id": "call_9d2c2961cd7f4c8aad09312a"
+  },
+  {
+    "timestamp": "2026-02-08T02:54:16.279161",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Volumes/Storage/MCP/gemini-tools-server/src/index.ts",
+      "old_string": "args.test_framework",
+      "new_string": "argsTyped.test_framework",
+      "replace_all": true
+    },
+    "tool_use_id": "call_4a905ae0f3c5433a807551ee"
+  },
+  {
+    "timestamp": "2026-02-08T02:54:18.477893",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Volumes/Storage/MCP/gemini-tools-server/src/index.ts",
+      "old_string": "args.trace_data",
+      "new_string": "argsTyped.trace_data",
+      "replace_all": true
+    },
+    "tool_use_id": "call_907b9675fa5c4b42b0f5f978"
+  },
+  {
+    "timestamp": "2026-02-08T02:54:20.339489",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Volumes/Storage/MCP/gemini-tools-server/src/index.ts",
+      "old_string": "args.test_name",
+      "new_string": "argsTyped.test_name",
+      "replace_all": true
+    },
+    "tool_use_id": "call_aab2885d3d96469782e5f165"
+  },
+  {
+    "timestamp": "2026-02-08T02:54:22.602343",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Volumes/Storage/MCP/gemini-tools-server/src/index.ts",
+      "old_string": "args.output_path",
+      "new_string": "argsTyped.output_path",
+      "replace_all": true
+    },
+    "tool_use_id": "call_e3e6b5a2e2aa426d90231c36"
+  },
+  {
+    "timestamp": "2026-02-08T02:54:25.274529",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "npm run build 2>&1",
+      "description": "Build gemini-tools-server with TypeScript"
+    },
+    "tool_use_id": "call_163359ecfa1a4a3e82a47e43"
+  },
+  {
+    "timestamp": "2026-02-08T02:54:32.392829",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "ls -la /Volumes/Storage/MCP/gemini-tools-server/dist/",
+      "description": "List built dist files"
+    },
+    "tool_use_id": "call_a1eced1f8790425c8ea4275e"
+  },
+  {
+    "timestamp": "2026-02-08T02:54:41.103069",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Volumes/Storage/MCP/MCP_SERVERS_CONFIG.json",
+      "old_string": "  \"generated\": \"2026-02-03\",\n  \"summary\": {\n    \"total_servers\": 13,\n    \"working\": 13,\n    \"v2_servers\": 8,\n    \"v1_servers\": 5,\n    \"success_rate\": \"100%\"\n  },",
+      "new_string": "  \"generated\": \"2026-02-08\",\n  \"summary\": {\n    \"total_servers\": 14,\n    \"working\": 14,\n    \"v2_servers\": 9,\n    \"v1_servers\": 5,\n    \"success_rate\": \"100%\"\n  },",
+      "replace_all": false
+    },
+    "tool_use_id": "call_ada022993d0f44ac8279e31c"
+  },
+  {
+    "timestamp": "2026-02-08T02:54:46.432323",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Volumes/Storage/MCP/MCP_SERVERS_CONFIG.json",
+      "old_string": "      {\n        \"name\": \"floyd-terminal-server\",\n        \"path\": \"/Volumes/Storage/MCP/floyd-terminal-server\",\n        \"entry_point\": \"/Volumes/Storage/MCP/floyd-terminal-server/dist/index.js\",\n        \"version\": \"1.0.0\",\n        \"status\": \"working\",\n        \"type\": \"module\",\n        \"main\": \"dist/index.js\"\n      }",
+      "new_string": "      {\n        \"name\": \"floyd-terminal-server\",\n        \"path\": \"/Volumes/Storage/MCP/floyd-terminal-server\",\n        \"entry_point\": \"/Volumes/Storage/MCP/floyd-terminal-server/dist/index.js\",\n        \"version\": \"1.0.0\",\n        \"status\": \"working\",\n        \"type\": \"module\",\n        \"main\": \"dist/index.js\"\n      },\n      {\n        \"name\": \"gemini-tools-server\",\n        \"path\": \"/Volumes/Storage/MCP/gemini-tools-server\",\n        \"entry_point\": \"/Volumes/Storage/MCP/gemini-tools-server/dist/index.js\",\n        \"version\": \"1.0.0\",\n        \"status\": \"working\",\n        \"type\": \"module\",\n        \"main\": \"dist/index.js\",\n        \"description\": \"3 specialized tools: dependency_hologram, failure_to_test_transmuter, trace_replay_debugger\"\n      }",
+      "replace_all": false
+    },
+    "tool_use_id": "call_50979d6541ff4cba9ef4ab4f"
+  },
+  {
+    "timestamp": "2026-02-08T02:54:50.323620",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Volumes/Storage/MCP/MCP_SERVERS_CONFIG.json",
+      "old_string": "  \"validation\": {\n    \"build_status\": \"13/13 successful\",\n    \"typescript_errors\": 0,\n    \"dependency_errors\": 0,\n    \"mcp_compliant\": \"13/13\",\n    \"syntax_valid\": \"13/13\",\n    \"smoke_tests\": \"13/13 passed\"\n  },",
+      "new_string": "  \"validation\": {\n    \"build_status\": \"14/14 successful\",\n    \"typescript_errors\": 0,\n    \"dependency_errors\": 0,\n    \"mcp_compliant\": \"14/14\",\n    \"syntax_valid\": \"14/14\",\n    \"smoke_tests\": \"14/14 passed\"\n  },",
+      "replace_all": false
+    },
+    "tool_use_id": "call_5adb7374b77d430fab62ee19"
+  },
+  {
+    "timestamp": "2026-02-08T02:54:56.821649",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "ls -la /Volumes/Storage/MCP/lab-lead-server/",
+      "description": "List lab-lead-server contents"
+    },
+    "tool_use_id": "call_4679168d628c4a45b878c27c"
+  },
+  {
+    "timestamp": "2026-02-08T02:55:09.267854",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Volumes/Storage/MCP/lab-lead-server/src/index.ts",
+      "old_string": "    'floyd-explorer': {\n      location: `${FLOYD_CLI_LOCATION}/explorer-server.js`,\n      tools: 5,\n      purpose: 'Project structure exploration',\n      category: 'development'\n    },\n  },",
+      "new_string": "    'floyd-explorer': {\n      location: `${FLOYD_CLI_LOCATION}/explorer-server.js`,\n      tools: 5,\n      purpose: 'Project structure exploration',\n      category: 'development'\n    },\n    'gemini-tools': {\n      location: `${LAB_ROOT}/gemini-tools-server`,\n      tools: 3,\n      purpose: 'Dependency visualization, bug freezing, trace replay debugging',\n      category: 'development'\n    },\n  },",
+      "replace_all": false
+    },
+    "tool_use_id": "call_a26da2fdab1c42088333ba40"
+  },
+  {
+    "timestamp": "2026-02-08T02:55:23.494866",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Volumes/Storage/MCP/lab-lead-server/src/index.ts",
+      "old_string": "  // Tool categories for finding the right tool\n  categories: {\n    memory: ['cache_store', 'cache_retrieve', 'cache_delete', 'cache_search', 'cache_stats'],\n    development: ['dependency_analyzer', 'typescript_semantic_analyzer', 'run_tests', 'lint', 'format', 'build'],\n    terminal: ['start_process', 'interact_with_process', 'list_processes', 'stop_process'],\n    analysis: ['extract_pattern', 'crystallize_pattern', 'analyze_mit', 'dependency_analyzer'],\n    context: ['pack_context', 'compress_context', 'unpack_context', 'optimize_context'],\n    orchestration: ['register_agent', 'submit_task', 'get_result', 'coordinate_task'],\n    vision: ['analyze_image', 'analyze_video', 'extract_text', 'ui_to_artifact'],\n    web: ['web_search', 'web_reader', 'github_read', 'github_search'],\n  }",
+      "new_string": "  // Tool categories for finding the right tool\n  categories: {\n    memory: ['cache_store', 'cache_retrieve', 'cache_delete', 'cache_search', 'cache_stats'],\n    development: ['dependency_analyzer', 'typescript_semantic_analyzer', 'run_tests', 'lint', 'format', 'build', 'dependency_hologram', 'failure_to_test_transmuter', 'trace_replay_debugger'],\n    terminal: ['start_process', 'interact_with_process', 'list_processes', 'stop_process'],\n    analysis: ['extract_pattern', 'crystallize_pattern', 'analyze_mit', 'dependency_analyzer', 'dependency_hologram'],\n    context: ['pack_context', 'compress_context', 'unpack_context', 'optimize_context'],\n    orchestration: ['register_agent', 'submit_task', 'get_result', 'coordinate_task'],\n    vision: ['analyze_image', 'analyze_video', 'extract_text', 'ui_to_artifact'],\n    web: ['web_search', 'web_reader', 'github_read', 'github_search'],\n    testing: ['failure_to_test_transmuter', 'trace_replay_debugger', 'run_tests', 'test_generator'],\n    debugging: ['trace_replay_debugger', 'dependency_hologram', 'git_bisect'],\n  }",
+      "replace_all": false
+    },
+    "tool_use_id": "call_6500c72bc9b74f82acf87903"
+  },
+  {
+    "timestamp": "2026-02-08T02:55:25.476959",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "cd /Volumes/Storage/MCP/lab-lead-server && npm run build",
+      "description": "Build lab-lead-server"
+    },
+    "tool_use_id": "call_c97a50ddf67d4fb58cea9471"
+  },
+  {
+    "timestamp": "2026-02-08T03:00:44.326127",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Edit",
+    "tool_input": {
+      "file_path": "/Volumes/Storage/MCP/lab-lead-server/src/index.ts",
+      "old_string": "  // External HTTP servers\n  externalServers: {\n    '4_5v_mcp': {\n      provider: 'zai',\n      tools: 1,\n      capabilities: ['vision_analysis']\n    },\n    'zai-mcp-server': {\n      provider: 'zai',\n      tools: 7,\n      capabilities: ['image_analysis', 'video_analysis', 'ocr', 'ui_extraction', 'diagram_understanding']\n    },\n    'web-search-prime': {\n      provider: 'zai',\n      tools: 1,\n      capabilities: ['web_search']\n    },\n    'web-reader': {\n      provider: 'zai',\n      tools: 1,\n      capabilities: ['web_scraping']\n    },\n    'zread': {\n      provider: 'zai',\n      tools: 3,\n      capabilities: ['github_analysis']\n    },\n  },",
+      "new_string": "  // External HTTP servers\n  externalServers: {\n    '4_5v_mcp': {\n      provider: 'zai',\n      tools: 1,\n      capabilities: ['vision_analysis']\n    },\n    'zai-mcp-server': {\n      provider: 'zai',\n      tools: 8,\n      capabilities: ['image_analysis', 'video_analysis', 'ocr', 'ui_extraction', 'diagram_understanding', 'error_diagnosis', 'data_viz_analysis', 'ui_diff']\n    },\n    'web-search-prime': {\n      provider: 'zai',\n      tools: 1,\n      capabilities: ['web_search']\n    },\n    'web-reader': {\n      provider: 'zai',\n      tools: 1,\n      capabilities: ['web_scraping']\n    },\n    'zread': {\n      provider: 'zai',\n      tools: 3,\n      capabilities: ['github_analysis', 'repo_search', 'repo_structure', 'file_read']\n    },\n  },",
+      "replace_all": false
+    },
+    "tool_use_id": "call_d4899c0f0de245668ae09da9"
+  },
+  {
+    "timestamp": "2026-02-08T03:00:50.431606",
+    "session_id": "a1dc0e4d-176a-4924-8f90-fca072ccc294",
+    "transcript_path": "/Users/douglastalley/.claude/projects/-Volumes-Storage-MCP/a1dc0e4d-176a-4924-8f90-fca072ccc294.jsonl",
+    "cwd": "/Volumes/Storage/MCP/gemini-tools-server",
+    "permission_mode": "bypassPermissions",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "cd /Volumes/Storage/MCP/lab-lead-server && npm run build",
+      "description": "Rebuild lab-lead-server"
+    },
+    "tool_use_id": "call_18f4299a8b6e495bb48f4366"
+  }
+]

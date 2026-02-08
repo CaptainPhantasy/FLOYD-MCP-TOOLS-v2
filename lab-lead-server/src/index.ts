@@ -133,6 +133,12 @@ const LAB_KNOWLEDGE: LabKnowledge = {
       purpose: 'Project structure exploration',
       category: 'development'
     },
+    'gemini-tools': {
+      location: `${LAB_ROOT}/gemini-tools-server`,
+      tools: 3,
+      purpose: 'Dependency visualization, bug freezing, trace replay debugging',
+      category: 'development'
+    },
   },
 
   // External HTTP servers
@@ -144,8 +150,8 @@ const LAB_KNOWLEDGE: LabKnowledge = {
     },
     'zai-mcp-server': {
       provider: 'zai',
-      tools: 7,
-      capabilities: ['image_analysis', 'video_analysis', 'ocr', 'ui_extraction', 'diagram_understanding']
+      tools: 8,
+      capabilities: ['image_analysis', 'video_analysis', 'ocr', 'ui_extraction', 'diagram_understanding', 'error_diagnosis', 'data_viz_analysis', 'ui_diff']
     },
     'web-search-prime': {
       provider: 'zai',
@@ -160,20 +166,22 @@ const LAB_KNOWLEDGE: LabKnowledge = {
     'zread': {
       provider: 'zai',
       tools: 3,
-      capabilities: ['github_analysis']
+      capabilities: ['github_analysis', 'repo_search', 'repo_structure', 'file_read']
     },
   },
 
   // Tool categories for finding the right tool
   categories: {
     memory: ['cache_store', 'cache_retrieve', 'cache_delete', 'cache_search', 'cache_stats'],
-    development: ['dependency_analyzer', 'typescript_semantic_analyzer', 'run_tests', 'lint', 'format', 'build'],
+    development: ['dependency_analyzer', 'typescript_semantic_analyzer', 'run_tests', 'lint', 'format', 'build', 'dependency_hologram', 'failure_to_test_transmuter', 'trace_replay_debugger'],
     terminal: ['start_process', 'interact_with_process', 'list_processes', 'stop_process'],
-    analysis: ['extract_pattern', 'crystallize_pattern', 'analyze_mit', 'dependency_analyzer'],
+    analysis: ['extract_pattern', 'crystallize_pattern', 'analyze_mit', 'dependency_analyzer', 'dependency_hologram'],
     context: ['pack_context', 'compress_context', 'unpack_context', 'optimize_context'],
     orchestration: ['register_agent', 'submit_task', 'get_result', 'coordinate_task'],
     vision: ['analyze_image', 'analyze_video', 'extract_text', 'ui_to_artifact'],
     web: ['web_search', 'web_reader', 'github_read', 'github_search'],
+    testing: ['failure_to_test_transmuter', 'trace_replay_debugger', 'run_tests', 'test_generator'],
+    debugging: ['trace_replay_debugger', 'dependency_hologram', 'git_bisect'],
   }
 };
 
@@ -297,6 +305,168 @@ interface ToolResult {
   description: string;
 }
 
+// Explicit tool to server mapping for accurate results
+const TOOL_TO_SERVER: Record<string, string> = {
+  // Floyd supercache
+  cache_store: 'floyd-supercache',
+  cache_retrieve: 'floyd-supercache',
+  cache_delete: 'floyd-supercache',
+  cache_clear: 'floyd-supercache',
+  cache_list: 'floyd-supercache',
+  cache_search: 'floyd-supercache',
+  cache_stats: 'floyd-supercache',
+  cache_prune: 'floyd-supercache',
+  cache_store_pattern: 'floyd-supercache',
+  cache_store_reasoning: 'floyd-supercache',
+  cache_load_reasoning: 'floyd-supercache',
+  cache_archive_reasoning: 'floyd-supercache',
+
+  // Floyd devtools
+  dependency_analyzer: 'floyd-devtools',
+  typescript_semantic_analyzer: 'floyd-devtools',
+  monorepo_dependency_analyzer: 'floyd-devtools',
+  build_error_correlator: 'floyd-devtools',
+  git_bisect: 'floyd-devtools',
+  benchmark_runner: 'floyd-devtools',
+  test_generator: 'floyd-devtools',
+
+  // Floyd terminal
+  start_process: 'floyd-terminal',
+  interact_with_process: 'floyd-terminal',
+  read_process_output: 'floyd-terminal',
+  list_processes: 'floyd-terminal',
+  list_sessions: 'floyd-terminal',
+  force_terminate: 'floyd-terminal',
+  create_terminal: 'floyd-terminal',
+  execute_command: 'floyd-terminal',
+  get_terminal_status: 'floyd-terminal',
+  get_file_info: 'floyd-terminal',
+
+  // Floyd runner
+  detect_project: 'floyd-runner',
+  run_tests: 'floyd-runner',
+  format: 'floyd-runner',
+  lint: 'floyd-runner',
+  build: 'floyd-runner',
+  check_permission: 'floyd-runner',
+
+  // Floyd git
+  git_status: 'floyd-git',
+  git_diff: 'floyd-git',
+  git_log: 'floyd-git',
+  git_commit: 'floyd-git',
+  git_stage: 'floyd-git',
+  git_unstage: 'floyd-git',
+  git_branch: 'floyd-git',
+
+  // Floyd patch
+  apply_unified_diff: 'floyd-patch',
+  edit_range: 'floyd-patch',
+  insert_at: 'floyd-patch',
+  delete_range: 'floyd-patch',
+  assess_patch_risk: 'floyd-patch',
+
+  // Floyd explorer
+  project_map: 'floyd-explorer',
+  read_file: 'floyd-explorer',
+  list_symbols: 'floyd-explorer',
+  smart_replace: 'floyd-explorer',
+  manage_scratchpad: 'floyd-explorer',
+
+  // Floyd safe-ops
+  impact_simulate: 'floyd-safe-ops',
+  safe_refactor: 'floyd-safe-ops',
+  verify: 'floyd-safe-ops',
+
+  // Pattern crystallizer v2
+  extract_pattern: 'pattern-crystallizer-v2',
+  detect_and_crystallize: 'pattern-crystallizer-v2',
+  adapt_pattern: 'pattern-crystallizer-v2',
+  validate_pattern: 'pattern-crystallizer-v2',
+  list_crystallized: 'pattern-crystallizer-v2',
+
+  // Context singularity v2
+  pack_context: 'context-singularity-v2',
+  compress_context: 'context-singularity-v2',
+  unpack_context: 'context-singularity-v2',
+  optimize_context: 'context-singularity-v2',
+  orchestrate_context: 'context-singularity-v2',
+  merge_contexts: 'context-singularity-v2',
+  analyze_context: 'context-singularity-v2',
+  cache_context: 'context-singularity-v2',
+  validate_context: 'context-singularity-v2',
+  ingest_file: 'context-singularity-v2',
+  ingest_codebase: 'context-singularity-v2',
+  ask: 'context-singularity-v2',
+  search: 'context-singularity-v2',
+  explain: 'context-singularity-v2',
+  find_impact: 'context-singularity-v2',
+
+  // Hivemind v2
+  register_agent: 'hivemind-v2',
+  submit_task: 'hivemind-v2',
+  get_task_status: 'hivemind-v2',
+  assign_tasks: 'hivemind-v2',
+  claim_task: 'hivemind-v2',
+  complete_task: 'hivemind-v2',
+  collaborate: 'hivemind-v2',
+  send_message: 'hivemind-v2',
+  build_consensus: 'hivemind-v2',
+  get_stats: 'hivemind-v2',
+  update_agent_status: 'hivemind-v2',
+  list_tasks: 'hivemind-v2',
+
+  // Omega v2
+  think: 'omega-v2',
+  rlm: 'omega-v2',
+  consensus: 'omega-v2',
+  learn: 'omega-v2',
+  reflect: 'omega-v2',
+  evolve: 'omega-v2',
+
+  // Novel concepts
+  compute_budget_allocator: 'novel-concepts',
+  concept_web_weaver: 'novel-concepts',
+  episodic_memory_bank: 'novel-concepts',
+  analogy_synthesizer: 'novel-concepts',
+  semantic_diff_validator: 'novel-concepts',
+  refactoring_orchestrator: 'novel-concepts',
+  consensus_protocol: 'novel-concepts',
+  distributed_task_board: 'novel-concepts',
+  adaptive_context_compressor: 'novel-concepts',
+  execution_trace_synthesizer: 'novel-concepts',
+
+  // Gemini tools
+  dependency_hologram: 'gemini-tools',
+  failure_to_test_transmuter: 'gemini-tools',
+  trace_replay_debugger: 'gemini-tools',
+
+  // Lab lead
+  lab_inventory: 'lab-lead',
+  lab_find_tool: 'lab-lead',
+  lab_get_server_info: 'lab-lead',
+  lab_spawn_agent: 'lab-lead',
+  lab_sync_knowledge: 'lab-lead',
+  lab_get_tool_registry: 'lab-lead',
+
+  // External servers
+  analyze_image: 'zai-mcp-server',
+  analyze_video: 'zai-mcp-server',
+  ui_to_artifact: 'zai-mcp-server',
+  extract_text_from_screenshot: 'zai-mcp-server',
+  diagnose_error_screenshot: 'zai-mcp-server',
+  understand_technical_diagram: 'zai-mcp-server',
+  analyze_data_visualization: 'zai-mcp-server',
+  ui_diff_check: 'zai-mcp-server',
+  web_search: 'web-search-prime',
+  web_reader: 'web-reader',
+  search_doc: 'zread',
+  get_repo_structure: 'zread',
+  // Note: zread's read_file conflicts with floyd-explorer's read_file
+  // Use 'github_read' in keywords to distinguish
+  github_read: 'zread',
+};
+
 /**
  * Find tools based on task description
  */
@@ -307,10 +477,9 @@ function findToolsForTask(task: string, category?: string): ToolResult[] {
   // Category-based lookup
   if (category && category in LAB_KNOWLEDGE.categories) {
     for (const tool of LAB_KNOWLEDGE.categories[category]) {
-      for (const [serverName, serverInfo] of Object.entries(LAB_KNOWLEDGE.servers)) {
-        if (serverInfo.category === category || tool.includes(serverName.split('-')[0])) {
-          results.push({ tool, server: serverName, description: `${category} tool` });
-        }
+      const serverName = TOOL_TO_SERVER[tool];
+      if (serverName && LAB_KNOWLEDGE.servers[serverName]) {
+        results.push({ tool, server: serverName, description: LAB_KNOWLEDGE.servers[serverName].purpose });
       }
     }
   }
@@ -319,33 +488,47 @@ function findToolsForTask(task: string, category?: string): ToolResult[] {
   const keywords: Record<string, string[]> = {
     cache: ['cache_store', 'cache_retrieve', 'cache_search'],
     memory: ['cache_store', 'cache_retrieve', 'cache_store_reasoning'],
-    test: ['run_tests', 'test_generator'],
+    test: ['run_tests', 'test_generator', 'failure_to_test_transmuter'],
     build: ['build'],
     lint: ['lint'],
     format: ['format'],
     git: ['git_status', 'git_diff', 'git_commit'],
     process: ['start_process', 'interact_with_process'],
-    pattern: ['extract_pattern', 'crystallize_pattern'],
+    pattern: ['extract_pattern', 'detect_and_crystallize', 'adapt_pattern'],
     context: ['pack_context', 'compress_context'],
-    agent: ['register_agent', 'submit_task', 'coordinate_task'],
-    image: ['analyze_image'],
+    agent: ['register_agent', 'submit_task', 'collaborate'],
+    image: ['analyze_image', 'ui_to_artifact'],
     video: ['analyze_video'],
     web: ['web_search', 'web_reader'],
-    dependency: ['dependency_analyzer', 'monorepo_dependency_analyzer'],
+    dependency: ['dependency_analyzer', 'monorepo_dependency_analyzer', 'dependency_hologram'],
+    debug: ['trace_replay_debugger', 'git_bisect', 'diagnose_error_screenshot'],
+    visualize: ['dependency_hologram', 'analyze_data_visualization'],
+    bug: ['failure_to_test_transmuter', 'trace_replay_debugger', 'diagnose_error_screenshot'],
+    trace: ['trace_replay_debugger', 'execution_trace_synthesizer'],
+    crash: ['failure_to_test_transmuter'],
+    replay: ['trace_replay_debugger'],
+    hologram: ['dependency_hologram'],
+    diagram: ['understand_technical_diagram'],
+    screenshot: ['diagnose_error_screenshot', 'extract_text_from_screenshot'],
+    ocr: ['extract_text_from_screenshot'],
+    ui: ['ui_to_artifact', 'ui_diff_check'],
+    chart: ['analyze_data_visualization'],
+    github: ['search_doc', 'get_repo_structure', 'github_read'],
+    repo: ['search_doc', 'get_repo_structure', 'github_read'],
+    task: ['submit_task', 'get_task_status', 'assign_tasks', 'claim_task'],
+    think: ['think', 'rlm', 'consensus'],
   };
 
   for (const [keyword, tools] of Object.entries(keywords)) {
     if (taskLower.includes(keyword)) {
       for (const tool of tools) {
-        // Find which server has this tool
-        for (const [serverName, serverInfo] of Object.entries(LAB_KNOWLEDGE.servers)) {
-          const prefix = (serverInfo as ServerInfo & { prefix?: string }).prefix || '';
-          if (tool.startsWith(prefix) ||
-              serverInfo.category?.includes(keyword as any) ||
-              serverInfo.purpose?.toLowerCase().includes(keyword)) {
-            if (!results.find(r => r.tool === tool)) {
-              results.push({ tool, server: serverName, description: serverInfo.purpose });
-            }
+        // Use explicit tool-to-server mapping
+        const serverName = TOOL_TO_SERVER[tool];
+        if (serverName && (LAB_KNOWLEDGE.servers[serverName] || LAB_KNOWLEDGE.externalServers[serverName])) {
+          if (!results.find(r => r.tool === tool)) {
+            const serverInfo = LAB_KNOWLEDGE.servers[serverName] || LAB_KNOWLEDGE.externalServers[serverName];
+            const description = serverInfo?.purpose || `${keyword} tool`;
+            results.push({ tool, server: serverName, description });
           }
         }
       }

@@ -1,0 +1,23 @@
+{
+  "name": "gemini-tools-server",
+  "version": "1.0.0",
+  "description": "MCP Gemini Tools - 3 specialized tools for dependency visualization, bug freezing, and trace replay debugging",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch"
+  },
+  "keywords": ["mcp", "gemini", "dependency", "testing", "debugging"],
+  "author": "MCP Lab",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

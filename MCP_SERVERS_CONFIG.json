@@ -1,0 +1,163 @@
+{
+  "generated": "2026-02-08",
+  "summary": {
+    "total_servers": 11,
+    "working": 11,
+    "v2_servers": 4,
+    "floyd_servers": 4,
+    "other_servers": 3,
+    "success_rate": "100%"
+  },
+  "servers": {
+    "v2": [
+      {
+        "name": "pattern-crystallizer-v2",
+        "path": "/Volumes/Storage/MCP/pattern-crystallizer-v2",
+        "entry_point": "/Volumes/Storage/MCP/pattern-crystallizer-v2/dist/index.js",
+        "version": "2.0.0",
+        "status": "working",
+        "type": "module",
+        "main": "dist/index.js",
+        "tools": 9
+      },
+      {
+        "name": "context-singularity-v2",
+        "path": "/Volumes/Storage/MCP/context-singularity-v2",
+        "entry_point": "/Volumes/Storage/MCP/context-singularity-v2/dist/index.js",
+        "version": "2.0.0",
+        "status": "working",
+        "type": "module",
+        "main": "dist/index.js",
+        "tools": 13
+      },
+      {
+        "name": "hivemind-v2",
+        "path": "/Volumes/Storage/MCP/hivemind-v2",
+        "entry_point": "/Volumes/Storage/MCP/hivemind-v2/dist/index.js",
+        "version": "2.0.0",
+        "status": "working",
+        "type": "module",
+        "main": "dist/index.js",
+        "tools": 14
+      },
+      {
+        "name": "omega-v2",
+        "path": "/Volumes/Storage/MCP/omega-v2",
+        "entry_point": "/Volumes/Storage/MCP/omega-v2/dist/index.js",
+        "version": "2.0.0",
+        "status": "working",
+        "type": "module",
+        "main": "dist/index.js",
+        "tools": 8
+      }
+    ],
+    "floyd": [
+      {
+        "name": "floyd-devtools-server",
+        "path": "/Volumes/Storage/MCP/floyd-devtools-server",
+        "entry_point": "/Volumes/Storage/MCP/floyd-devtools-server/dist/index.js",
+        "version": "1.0.0",
+        "status": "working",
+        "has_tests": true,
+        "type": "module",
+        "main": "dist/index.js",
+        "tools": 10
+      },
+      {
+        "name": "floyd-safe-ops-server",
+        "path": "/Volumes/Storage/MCP/floyd-safe-ops-server",
+        "entry_point": "/Volumes/Storage/MCP/floyd-safe-ops-server/dist/index.js",
+        "version": "1.0.0",
+        "status": "working",
+        "type": "module",
+        "main": "dist/index.js",
+        "tools": 3
+      },
+      {
+        "name": "floyd-supercache-server",
+        "path": "/Volumes/Storage/MCP/floyd-supercache-server",
+        "entry_point": "/Volumes/Storage/MCP/floyd-supercache-server/dist/index.js",
+        "version": "1.0.0",
+        "status": "working",
+        "type": "module",
+        "main": "dist/index.js",
+        "tools": 14
+      },
+      {
+        "name": "floyd-terminal-server",
+        "path": "/Volumes/Storage/MCP/floyd-terminal-server",
+        "entry_point": "/Volumes/Storage/MCP/floyd-terminal-server/dist/index.js",
+        "version": "1.0.0",
+        "status": "working",
+        "type": "module",
+        "main": "dist/index.js",
+        "tools": 10
+      }
+    ],
+    "other": [
+      {
+        "name": "gemini-tools-server",
+        "path": "/Volumes/Storage/MCP/gemini-tools-server",
+        "entry_point": "/Volumes/Storage/MCP/gemini-tools-server/dist/index.js",
+        "version": "1.0.0",
+        "status": "working",
+        "type": "module",
+        "main": "dist/index.js",
+        "tools": 3,
+        "description": "3 specialized tools: dependency_hologram, failure_to_test_transmuter, trace_replay_debugger"
+      },
+      {
+        "name": "lab-lead-server",
+        "path": "/Volumes/Storage/MCP/lab-lead-server",
+        "entry_point": "/Volumes/Storage/MCP/lab-lead-server/dist/index.js",
+        "version": "1.0.0",
+        "status": "working",
+        "type": "module",
+        "main": "dist/index.js",
+        "tools": 6,
+        "description": "Lab inventory, tool discovery, agent spawning"
+      },
+      {
+        "name": "novel-concepts-server",
+        "path": "/Volumes/Storage/MCP/novel-concepts-server",
+        "entry_point": "/Volumes/Storage/MCP/novel-concepts-server/dist/index.js",
+        "version": "0.2.0",
+        "status": "working",
+        "has_tests": true,
+        "type": "module",
+        "main": "dist/index.js",
+        "tools": 12
+      }
+    ]
+  },
+  "validation": {
+    "build_status": "11/11 successful",
+    "typescript_errors": 0,
+    "dependency_errors": 0,
+    "mcp_compliant": "11/11",
+    "syntax_valid": "11/11",
+    "smoke_tests": "11/11 passed"
+  },
+  "removed_servers": [
+    {
+      "name": "pattern-crystallizer-server",
+      "reason": "Replaced by pattern-crystallizer-v2",
+      "removed_date": "2026-02-08"
+    },
+    {
+      "name": "context-singularity-server",
+      "reason": "Replaced by context-singularity-v2",
+      "removed_date": "2026-02-08"
+    },
+    {
+      "name": "hivemind-orchestrator-server",
+      "reason": "Replaced by hivemind-v2",
+      "removed_date": "2026-02-08"
+    },
+    {
+      "name": "omega-agi-server",
+      "reason": "Replaced by omega-v2",
+      "removed_date": "2026-02-08"
+    }
+  ]
+}
