@@ -541,7 +541,7 @@ You must explicitly articulate:
         },
         method: {
           type: "string",
-          enum: ["seal", "rlm", "consensus"],
+          enum: ["seal", "rlm"],
           default: "seal",
           description: "Reasoning method to apply"
         }
@@ -864,24 +864,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           case "rlm":
             chain = await reasoningEngine.rlm(richQuery, 3, desired_perspective);
             break;
-          case "consensus":
-            const game = await reasoningEngine.consensusGame(richQuery, [
-              "architectural_safety", "long_term_maintainability", "security_audit", "performance_optimization"
-            ].slice(0, 4));
-            return {
-              content: [{
-                type: "text",
-                text: JSON.stringify({
-                  method: "consensus",
-                  situation: current_situation,
-                  dilemma,
-                  perspective_applied: desired_perspective,
-                  consensus: game.consensus,
-                  recommendation: game.finalRecommendation,
-                  perspectives_analyzed: game.rounds.map(r => ({ perspective: r.perspective, confidence: r.confidence }))
-                }, null, 2)
-              }]
-            };
           default:
             chain = await reasoningEngine.seal(richQuery, desired_perspective);
         }
