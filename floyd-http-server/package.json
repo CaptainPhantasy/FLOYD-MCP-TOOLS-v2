@@ -1,0 +1,26 @@
+{
+  "name": "floyd-http-server",
+  "version": "1.0.0",
+  "description": "HTTP client MCP server for Floyd - enables inter-instance communication",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "http",
+    "floyd"
+  ],
+  "author": "Floyd Ecosystem",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.6",
+    "typescript": "^5.8.3"
+  }
+}

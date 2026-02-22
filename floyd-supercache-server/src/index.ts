@@ -20,6 +20,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSy
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
+import { lockSync, unlockSync } from 'proper-lockfile';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -41,6 +42,7 @@ const INDEX_FILE = join(CACHE_DIR, 'index.json');
 
 interface CacheEntry {
   key: string;
+  namespace: string; // Namespace for multi-project isolation (default: 'global')
   value: any;
   tier: 'project' | 'reasoning' | 'vault';
   createdAt: string;
@@ -60,7 +62,13 @@ interface CacheIndex {
 function loadIndex(): CacheIndex {
   if (existsSync(INDEX_FILE)) {
     try {
-      return JSON.parse(readFileSync(INDEX_FILE, 'utf8'));
+      lockSync(INDEX_FILE);
+      try {
+        const data = readFileSync(INDEX_FILE, 'utf8');
+        return JSON.parse(data);
+      } finally {
+        unlockSync(INDEX_FILE);
+      }
     } catch {
       return { entries: {} };
     }
@@ -69,7 +77,12 @@ function loadIndex(): CacheIndex {
 }
 
 function saveIndex(index: CacheIndex): void {
-  writeFileSync(INDEX_FILE, JSON.stringify(index, null, 2), 'utf8');
+  lockSync(INDEX_FILE);
+  try {
+    writeFileSync(INDEX_FILE, JSON.stringify(index, null, 2), 'utf8');
+  } finally {
+    unlockSync(INDEX_FILE);
+  }
 }
 
 function getTierPath(tier: 'project' | 'reasoning' | 'vault'): string {
@@ -84,8 +97,13 @@ function sanitizeKey(key: string): string {
   return key.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
-function getPath(key: string, tier: 'project' | 'reasoning' | 'vault'): string {
-  return join(getTierPath(tier), `${sanitizeKey(key)}.json`);
+function getPath(key: string, tier: 'project' | 'reasoning' | 'vault', namespace: string = 'global'): string {
+  // Include namespace in path to isolate entries
+  const nsDir = join(getTierPath(tier), namespace);
+  if (!existsSync(nsDir)) {
+    mkdirSync(nsDir, { recursive: true });
+  }
+  return join(nsDir, `${sanitizeKey(key)}.json`);
 }
 
 export async function createSupercacheServer(): Promise<Server> {
@@ -109,6 +127,11 @@ export async function createSupercacheServer(): Promise<Server> {
           inputSchema: {
             type: 'object',
             properties: {
+              namespace: {
+                type: 'string',
+                description: 'Namespace for multi-project isolation (default: global). Use project name or identifier.',
+                default: 'global',
+              },
               key: {
                 type: 'string',
                 description: 'Unique key for the cached data',
@@ -146,6 +169,10 @@ export async function createSupercacheServer(): Promise<Server> {
           inputSchema: {
             type: 'object',
             properties: {
+              namespace: {
+                type: 'string',
+                description: 'Namespace to search in (default: global, or search all if omitted)',
+              },
               key: {
                 type: 'string',
                 description: 'Key to retrieve',
@@ -494,10 +521,11 @@ export async function createSupercacheServer(): Promise<Server> {
     try {
       switch (name) {
         case 'cache_store': {
-          const { key = '', value = '', tier = 'project', tags = [], ttl, metadata } = args as {
+          const { key = '', value = '', tier = 'project', namespace = 'global', tags = [], ttl, metadata } = args as {
             key: string;
             value: any;
             tier: 'project' | 'reasoning' | 'vault';
+            namespace?: string;
             tags?: string[];
             ttl?: number;
             metadata?: Record<string, any>;
@@ -506,9 +534,13 @@ export async function createSupercacheServer(): Promise<Server> {
           const index = loadIndex();
           const now = new Date().toISOString();
           const expiresAt = ttl ? new Date(Date.now() + ttl * 1000).toISOString() : undefined;
+          
+          // Create namespaced index key
+          const indexKey = `${namespace}:${key}`;
 
           const entry: CacheEntry = {
             key,
+            namespace,
             value,
             tier,
             createdAt: now,
@@ -519,12 +551,12 @@ export async function createSupercacheServer(): Promise<Server> {
             metadata,
           };
 
-          // Store in tier-specific file
-          const filePath = getPath(key, tier);
+          // Store in tier-specific file with namespace
+          const filePath = getPath(key, tier, namespace);
           writeFileSync(filePath, JSON.stringify(entry, null, 2), 'utf8');
 
-          // Update index
-          index.entries[key] = entry;
+          // Update index with namespaced key
+          index.entries[indexKey] = entry;
           saveIndex(index);
 
           return {
@@ -533,6 +565,7 @@ export async function createSupercacheServer(): Promise<Server> {
               text: JSON.stringify({
                 success: true,
                 key,
+                namespace,
                 tier,
                 storedAt: now,
                 expiresAt,
@@ -542,16 +575,36 @@ export async function createSupercacheServer(): Promise<Server> {
         }
 
         case 'cache_retrieve': {
-          const { key, tier } = args as { key: string; tier?: 'project' | 'reasoning' | 'vault' };
+          const { key, tier, namespace } = args as { key: string; tier?: 'project' | 'reasoning' | 'vault'; namespace?: string };
 
           const index = loadIndex();
-          let entry = index.entries[key];
+          
+          // Try namespaced key first if namespace provided, then fall back to global
+          let entry: CacheEntry | undefined;
+          let indexKey = '';
+          
+          if (namespace) {
+            indexKey = `${namespace}:${key}`;
+            entry = index.entries[indexKey];
+          }
+          
+          // Fall back to global namespace for backwards compatibility
+          if (!entry) {
+            indexKey = `global:${key}`;
+            entry = index.entries[indexKey];
+          }
+          
+          // Last resort: try bare key for legacy entries
+          if (!entry) {
+            indexKey = key;
+            entry = index.entries[key];
+          }
 
           if (!entry) {
             return {
               content: [{
                 type: 'text',
-                text: JSON.stringify({ error: 'Key not found', key }, null, 2),
+                text: JSON.stringify({ error: 'Key not found', key, namespace }, null, 2),
               }],
               isError: false,
             };
@@ -580,7 +633,7 @@ export async function createSupercacheServer(): Promise<Server> {
           // Update access stats
           entry.accessCount++;
           entry.lastAccessed = new Date().toISOString();
-          index.entries[key] = entry;
+          index.entries[indexKey] = entry;
           saveIndex(index);
 
           return {
@@ -588,6 +641,7 @@ export async function createSupercacheServer(): Promise<Server> {
               type: 'text',
               text: JSON.stringify({
                 key,
+                namespace: entry.namespace || 'global',
                 value: entry.value,
                 tier: entry.tier,
                 accessCount: entry.accessCount,
@@ -598,16 +652,32 @@ export async function createSupercacheServer(): Promise<Server> {
         }
 
         case 'cache_delete': {
-          const { key, tier } = args as { key: string; tier?: 'project' | 'reasoning' | 'vault' };
+          const { key, tier, namespace } = args as { key: string; tier?: 'project' | 'reasoning' | 'vault'; namespace?: string };
 
           const index = loadIndex();
-          const entry = index.entries[key];
+          
+          // Try namespaced key first, then fall back
+          let entry: CacheEntry | undefined;
+          let indexKey = '';
+          
+          if (namespace) {
+            indexKey = `${namespace}:${key}`;
+            entry = index.entries[indexKey];
+          }
+          if (!entry) {
+            indexKey = `global:${key}`;
+            entry = index.entries[indexKey];
+          }
+          if (!entry) {
+            indexKey = key;
+            entry = index.entries[key];
+          }
 
           if (!entry) {
             return {
               content: [{
                 type: 'text',
-                text: JSON.stringify({ error: 'Key not found', key }, null, 2),
+                text: JSON.stringify({ error: 'Key not found', key, namespace }, null, 2),
               }],
             };
           }
@@ -621,18 +691,19 @@ export async function createSupercacheServer(): Promise<Server> {
             };
           }
 
-          const filePath = getPath(key, entry.tier);
+          const ns = entry.namespace || 'global';
+          const filePath = getPath(key, entry.tier, ns);
           if (existsSync(filePath)) {
             unlinkSync(filePath);
           }
 
-          delete index.entries[key];
+          delete index.entries[indexKey];
           saveIndex(index);
 
           return {
             content: [{
               type: 'text',
-              text: JSON.stringify({ success: true, deleted: key }, null, 2),
+              text: JSON.stringify({ success: true, deleted: key, namespace: ns }, null, 2),
             }],
           };
         }
@@ -655,7 +726,8 @@ export async function createSupercacheServer(): Promise<Server> {
           if (tier === 'all') {
             for (const key of Object.keys(index.entries)) {
               const entry = index.entries[key];
-              const filePath = getPath(key, entry.tier);
+              const ns = entry.namespace || 'global';
+              const filePath = getPath(key, entry.tier, ns);
               if (existsSync(filePath)) {
                 unlinkSync(filePath);
               }
@@ -669,7 +741,9 @@ export async function createSupercacheServer(): Promise<Server> {
 
             for (const key of Object.keys(index.entries)) {
               if (tiers.includes(index.entries[key].tier)) {
-                const filePath = getPath(key, index.entries[key].tier);
+                const entry = index.entries[key];
+                const ns = entry.namespace || 'global';
+                const filePath = getPath(key, entry.tier, ns);
                 if (existsSync(filePath)) {
                   unlinkSync(filePath);
                 }
@@ -727,6 +801,7 @@ export async function createSupercacheServer(): Promise<Server> {
                 total: results.length,
                 entries: results.map(e => ({
                   key: e.key,
+                  namespace: e.namespace || 'global',
                   tier: e.tier,
                   tags: e.tags,
                   createdAt: e.createdAt,
@@ -758,7 +833,8 @@ export async function createSupercacheServer(): Promise<Server> {
             if (entry.expiresAt && new Date(entry.expiresAt) < new Date()) continue;
 
             let score = 0;
-            const valueStr = JSON.stringify(entry.value).toLowerCase();
+            const valueJson = JSON.stringify(entry.value ?? '');
+            const valueStr = valueJson?.toLowerCase() ?? '';
 
             // Key match
             if (key.toLowerCase().includes(queryLower)) {
@@ -771,9 +847,11 @@ export async function createSupercacheServer(): Promise<Server> {
             }
 
             // Tag match
-            for (const tag of entry.tags) {
-              if (tag.toLowerCase().includes(queryLower)) {
-                score += 3;
+            if (entry.tags && Array.isArray(entry.tags)) {
+              for (const tag of entry.tags) {
+                if (tag && typeof tag === 'string' && tag.toLowerCase().includes(queryLower)) {
+                  score += 3;
+                }
               }
             }
 
@@ -805,9 +883,10 @@ export async function createSupercacheServer(): Promise<Server> {
           const stats: Record<string, any> = {
             totalEntries: 0,
             byTier: { project: 0, reasoning: 0, vault: 0 },
+            byNamespace: {} as Record<string, number>,
             expired: 0,
             totalSize: 0,
-            topAccessed: [] as Array<{ key: string; accessCount: number }>,
+            topAccessed: [] as Array<{ key: string; namespace: string; accessCount: number }>,
           };
 
           for (const [key, entry] of Object.entries(index.entries)) {
@@ -815,12 +894,15 @@ export async function createSupercacheServer(): Promise<Server> {
 
             stats.totalEntries++;
             stats.byTier[entry.tier]++;
+            
+            const ns = entry.namespace || 'global';
+            stats.byNamespace[ns] = (stats.byNamespace[ns] || 0) + 1;
 
             if (entry.expiresAt && new Date(entry.expiresAt) < new Date()) {
               stats.expired++;
             }
 
-            const filePath = getPath(key, entry.tier);
+            const filePath = getPath(entry.key, entry.tier, ns);
             if (existsSync(filePath)) {
               stats.totalSize += statSync(filePath).size;
             }
@@ -832,7 +914,8 @@ export async function createSupercacheServer(): Promise<Server> {
             .slice(0, 10);
 
           stats.topAccessed = sorted.map(([key, entry]) => ({
-            key,
+            key: entry.key,
+            namespace: entry.namespace || 'global',
             accessCount: entry.accessCount,
           }));
 
@@ -870,7 +953,8 @@ export async function createSupercacheServer(): Promise<Server> {
           if (!dryRun) {
             for (const key of toPrune) {
               const entry = index.entries[key];
-              const filePath = getPath(key, entry.tier);
+              const ns = entry.namespace || 'global';
+              const filePath = getPath(entry.key, entry.tier, ns);
               if (existsSync(filePath)) {
                 unlinkSync(filePath);
               }
@@ -994,6 +1078,8 @@ export async function createSupercacheServer(): Promise<Server> {
             };
           }
 
+          const ns = entry.namespace || 'global';
+          
           // Archive to vault
           const vaultKey = `archived:${key}`;
           const vaultEntry: CacheEntry = {
@@ -1005,11 +1091,11 @@ export async function createSupercacheServer(): Promise<Server> {
             archivedAt: new Date().toISOString(),
           };
 
-          const vaultPath = getPath(vaultKey, 'vault');
+          const vaultPath = getPath(vaultKey, 'vault', ns);
           writeFileSync(vaultPath, JSON.stringify(vaultEntry, null, 2), 'utf8');
 
           // Remove from reasoning tier
-          const reasoningPath = getPath(key, 'reasoning');
+          const reasoningPath = getPath(key, 'reasoning', ns);
           if (existsSync(reasoningPath)) {
             unlinkSync(reasoningPath);
           }
@@ -1056,13 +1142,17 @@ async function cache_store(
   key: string,
   value: any,
   tags: string[],
-  tier: 'project' | 'reasoning' | 'vault'
+  tier: 'project' | 'reasoning' | 'vault',
+  namespace: string = 'global'
 ) {
   const index = loadIndex();
   const now = new Date().toISOString();
+  
+  const indexKey = `${namespace}:${key}`;
 
   const entry: CacheEntry = {
     key,
+    namespace,
     value,
     tier,
     createdAt: now,
@@ -1071,16 +1161,16 @@ async function cache_store(
     tags,
   };
 
-  const filePath = getPath(key, tier);
+  const filePath = getPath(key, tier, namespace);
   writeFileSync(filePath, JSON.stringify(entry, null, 2), 'utf8');
 
-  index.entries[key] = entry;
+  index.entries[indexKey] = entry;
   saveIndex(index);
 
   return {
     content: [{
       type: 'text',
-      text: JSON.stringify({ success: true, key, tier, storedAt: now }, null, 2),
+      text: JSON.stringify({ success: true, key, namespace, tier, storedAt: now }, null, 2),
     }],
   };
 }

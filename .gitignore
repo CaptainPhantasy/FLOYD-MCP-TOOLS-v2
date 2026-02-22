@@ -1,4 +1,59 @@
+# Dependencies
 node_modules/
+*.node
+
+# Build outputs
 dist/
-*.log
+build/
+*.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
 .DS_Store
+Thumbs.db
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+.webui_secret_key
+
+# Logs
+*.log
+logs/
+.claude/data/logs/
+
+# Test & coverage
+coverage/
+.nyc_output/
+
+# Large binary tooling - download on demand
+lab/staging/code-analysis/joern/
+**/joern-cli/
+
+# Build artifacts
+release/
+*.dmg
+*.exe
+*.app
+
+# Session & temp files
+sessions/
+*.tmp
+*.temp
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# MCP fixtures
+lab/fixtures/

@@ -1,0 +1,53 @@
+{
+  "name": "prompt-library-server",
+  "version": "2.0.0",
+  "description": "MCP Prompt Library - Frictionless access to 117+ prompts for Claude Code, Cline, Cursor, and other AI IDEs. HTTP API + WebSocket + stdio MCP transport.",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch",
+    "start:http": "ENABLE_HTTP=true node dist/index.js",
+    "dev:http": "tsc --watch & echo 'Run with: ENABLE_HTTP=true node dist/index.js'"
+  },
+  "keywords": [
+    "mcp",
+    "prompt",
+    "library",
+    "agents",
+    "skills",
+    "templates",
+    "workflow",
+    "chain",
+    "http",
+    "api"
+  ],
+  "author": "MCP Lab",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.0",
+    "@types/multer": "^2.0.0",
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^2.0.2",
+    "winston": "^3.19.0",
+    "winston-daily-rotate-file": "^5.0.0",
+    "ws": "^8.19.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^20.0.0",
+    "@types/ws": "^8.5.10",
+    "typescript": "^5.0.0"
+  }
+}
